@@ -233,6 +233,69 @@ v8sf log256_ps(v8sf x) {
   return x;
 }
 
+v8sf me_log256_ps(v8sf x) {
+    v8si imm0;
+    v8sf one = *(v8sf*)_ps256_1;
+
+    //v8sf invalid_mask = _mm256_cmple_ps(x, _mm256_setzero_ps());
+    v8sf invalid_mask = _mm256_cmp_ps(x, _mm256_setzero_ps(), _CMP_LE_OS);
+
+    x = _mm256_max_ps(x, *(v8sf*)_ps256_min_norm_pos);  /* cut off denormalized stuff */
+
+    // can be done with AVX2
+    imm0 = avx2_mm256_srli_epi32(_mm256_castps_si256(x), 23);
+
+    /* keep only the fractional part */
+    x = _mm256_and_ps(x, *(v8sf*)_ps256_inv_mant_mask);
+    x = _mm256_or_ps(x, *(v8sf*)_ps256_0p5);
+
+    // this is again another AVX2 instruction
+    imm0 = avx2_mm256_sub_epi32(imm0, *(v8si*)_pi32_256_0x7f);
+    v8sf e = _mm256_cvtepi32_ps(imm0);
+
+    e = _mm256_add_ps(e, one);
+
+    /* part2:
+       if( x < SQRTHF ) {
+         e -= 1;
+         x = x + x - 1.0;
+       } else { x = x - 1.0; }
+    */
+    //v8sf mask = _mm256_cmplt_ps(x, *(v8sf*)_ps256_cephes_SQRTHF);
+    v8sf mask = _mm256_cmp_ps(x, *(v8sf*)_ps256_cephes_SQRTHF, _CMP_LT_OS);
+    v8sf tmp = _mm256_and_ps(x, mask);
+    x = _mm256_sub_ps(x, one);
+    e = _mm256_sub_ps(e, _mm256_and_ps(one, mask));
+    x = _mm256_add_ps(x, tmp);
+
+    v8sf z = _mm256_mul_ps(x,x);
+
+    v8sf y = *(v8sf*)_ps256_cephes_log_p0;
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p1);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p2);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p3);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p4);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p5);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p6);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p7);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p8);
+
+    y = _mm256_mul_ps(y, x);
+
+    y = _mm256_mul_ps(y, z);
+
+    y = _mm256_fmadd_ps(e, *(v8sf*)_ps256_cephes_log_q1, y);
+    y = _mm256_fnmadd_ps(z, *(v8sf*)_ps256_0p5, y);
+
+    x = _mm256_add_ps(x, y);
+
+    x = _mm256_fmadd_ps(e, *(v8sf*)_ps256_cephes_log_q2, x);
+
+    x = _mm256_or_ps(x, invalid_mask); // negative arg will be NAN
+    return x;
+}
+
+
 _PS256_CONST(exp_hi,	88.3762626647949f);
 _PS256_CONST(exp_lo,	-88.3762626647949f);
 
@@ -301,6 +364,54 @@ v8sf exp256_ps(v8sf x) {
   v8sf pow2n = _mm256_castsi256_ps(imm0);
   y = _mm256_mul_ps(y, pow2n);
   return y;
+}
+
+v8sf me_exp256_ps(v8sf x) {
+    v8sf tmp = _mm256_setzero_ps(), fx;
+    v8si imm0;
+    v8sf one = *(v8sf*)_ps256_1;
+
+    x = _mm256_min_ps(x, *(v8sf*)_ps256_exp_hi);
+    x = _mm256_max_ps(x, *(v8sf*)_ps256_exp_lo);
+
+    /* express exp(x) as exp(g + n*log(2)) */
+    fx = _mm256_fmadd_ps(x, *(v8sf*)_ps256_cephes_LOG2EF, *(v8sf*)_ps256_0p5);
+
+    /* how to perform a floorf with SSE: just below */
+    //imm0 = _mm256_cvttps_epi32(fx);
+    //tmp  = _mm256_cvtepi32_ps(imm0);
+
+    tmp = _mm256_floor_ps(fx);
+
+    /* if greater, substract 1 */
+    //v8sf mask = _mm256_cmpgt_ps(tmp, fx);
+    v8sf mask = _mm256_cmp_ps(tmp, fx, _CMP_GT_OS);
+    mask = _mm256_and_ps(mask, one);
+    fx = _mm256_sub_ps(tmp, mask);
+
+    x = _mm256_fnmadd_ps(fx, *(v8sf*)_ps256_cephes_exp_C1, x);
+    x = _mm256_fnmadd_ps(fx, *(v8sf*)_ps256_cephes_exp_C2, x);
+
+    v8sf z = _mm256_mul_ps(x,x);
+
+    v8sf y = *(v8sf*)_ps256_cephes_exp_p0;
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p1);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p2);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p3);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p4);
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p5);
+
+    y = _mm256_fmadd_ps(y, z, x);
+    y = _mm256_add_ps(y, one);
+
+    /* build 2^n */
+    imm0 = _mm256_cvttps_epi32(fx);
+    // another two AVX2 instructions
+    imm0 = avx2_mm256_add_epi32(imm0, *(v8si*)_pi32_256_0x7f);
+    imm0 = avx2_mm256_slli_epi32(imm0, 23);
+    v8sf pow2n = _mm256_castsi256_ps(imm0);
+    y = _mm256_mul_ps(y, pow2n);
+    return y;
 }
 
 _PS256_CONST(minus_cephes_DP1, -0.78515625);
