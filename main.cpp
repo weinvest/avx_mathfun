@@ -7,13 +7,13 @@
 constexpr size_t VECTOR_LEN = 1UL<<16;
 constexpr size_t ALIGN = 32;
 constexpr size_t ITER_COUNT = 10000;
-constexpr float EPSILON = 1e-5;
+constexpr float EPSILON = 1e-6;
 
 class AVXMathfunTest : public ::testing::Test {
 private:
     template <typename T>
     inline void allocMemory(T** data) {
-        posix_memalign(reinterpret_cast<void**>(data), ALIGN, VECTOR_LEN*sizeof(float));
+        (void)posix_memalign(reinterpret_cast<void**>(data), ALIGN, VECTOR_LEN*sizeof(float));
     }
 
 #define allocMem(func)\

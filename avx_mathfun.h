@@ -73,7 +73,7 @@ _PI32_CONST256(inv1, ~1);
 _PI32_CONST256(2, 2);
 _PI32_CONST256(4, 4);
 _PI32_CONST256(0x7f, 0x7f);
-
+#if 1
 _PS256_CONST(cephes_SQRTHF, 0.707106781186547524);
 _PS256_CONST(cephes_log_p0, 7.0376836292E-2);
 _PS256_CONST(cephes_log_p1, - 1.1514610310E-1);
@@ -86,6 +86,22 @@ _PS256_CONST(cephes_log_p7, - 2.4999993993E-1);
 _PS256_CONST(cephes_log_p8, + 3.3333331174E-1);
 _PS256_CONST(cephes_log_q1, -2.12194440e-4);
 _PS256_CONST(cephes_log_q2, 0.693359375);
+_PS256_CONST(cephes_log_q3, 0.6931471805599453);
+#else
+_PS256_CONST(cephes_SQRTHF, 0.707106781186547524);
+_PS256_CONST(cephes_log_p0, 7.0376836292E-2);
+_PS256_CONST(cephes_log_p1, - 1.1514610310E-1);
+_PS256_CONST(cephes_log_p2, + 1.-1);
+_PS256_CONST(cephes_log_p3, - 1.0/8.0);
+_PS256_CONST(cephes_log_p4, + 1.0/7.0);
+_PS256_CONST(cephes_log_p5, - 1.0/6.0);
+_PS256_CONST(cephes_log_p6, + 1.0/5.0);
+_PS256_CONST(cephes_log_p7, - 1.0/4.0);
+_PS256_CONST(cephes_log_p8, + 1.0/3.0);
+_PS256_CONST(cephes_log_q1, -2.12194440e-4);
+_PS256_CONST(cephes_log_q2, 0.693359375);
+_PS256_CONST(cephes_log_q3, 0.6931471805599453);
+#endif
 
 #ifndef __AVX2__
 
@@ -233,7 +249,19 @@ v8sf log256_ps(v8sf x) {
   return x;
 }
 
+_PS256_CONST(cephes_log_recip_9, 2.0/17.0);
+_PS256_CONST(cephes_log_recip_8, 2.0/15.0);
+_PS256_CONST(cephes_log_recip_7, 2.0/13.0);
+_PS256_CONST(cephes_log_recip_6, 2.0/11.0);
+_PS256_CONST(cephes_log_recip_5, 2.0/9.0);
+_PS256_CONST(cephes_log_recip_4, 2.0/7.0);
+_PS256_CONST(cephes_log_recip_3, 2.0/5.0);
+_PS256_CONST(cephes_log_recip_2, 2.0/3.0);
+_PS256_CONST(cephes_log_recip_1, 2.0);
+//_PS256_CONST(cephes_log_q3, 0.6931471805599453);
+
 v8sf me_log256_ps(v8sf x) {
+
     v8si imm0;
     v8sf one = *(v8sf*)_ps256_1;
 
@@ -247,69 +275,70 @@ v8sf me_log256_ps(v8sf x) {
 
     /* keep only the fractional part */
     x = _mm256_and_ps(x, *(v8sf*)_ps256_inv_mant_mask);
-    x = _mm256_or_ps(x, *(v8sf*)_ps256_0p5);
+    x = _mm256_or_ps(x, one);
 
     // this is again another AVX2 instruction
     imm0 = avx2_mm256_sub_epi32(imm0, *(v8si*)_pi32_256_0x7f);
     v8sf e = _mm256_cvtepi32_ps(imm0);
 
-    e = _mm256_add_ps(e, one);
-
-    /* part2:
-       if( x < SQRTHF ) {
-         e -= 1;
-         x = x + x - 1.0;
-       } else { x = x - 1.0; }
-    */
-    //v8sf mask = _mm256_cmplt_ps(x, *(v8sf*)_ps256_cephes_SQRTHF);
-    v8sf mask = _mm256_cmp_ps(x, *(v8sf*)_ps256_cephes_SQRTHF, _CMP_LT_OS);
-    v8sf tmp = _mm256_and_ps(x, mask);
-    x = _mm256_sub_ps(x, one);
-    e = _mm256_sub_ps(e, _mm256_and_ps(one, mask));
-    x = _mm256_add_ps(x, tmp);
+    v8sf xn1 = _mm256_sub_ps(x, one);
+    v8sf xa1 = _mm256_add_ps(x, one);
+    x = _mm256_div_ps(xn1, xa1);
 
     v8sf z = _mm256_mul_ps(x,x);
 
-    v8sf y = *(v8sf*)_ps256_cephes_log_p0;
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p1);
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p2);
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p3);
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p4);
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p5);
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p6);
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p7);
-    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_log_p8);
+    #if 1
+    v8sf y = *(v8sf*)_ps256_cephes_log_recip_6;
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_5);
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_4);
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_3);
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_2);
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_1);
+    #else
+    v8sf y = *(v8sf*)_ps256_cephes_log_recip_5;
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_4);
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_3);
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_2);
+    y = _mm256_fmadd_ps(y, z, *(v8sf*)_ps256_cephes_log_recip_1);
+    #endif
 
     y = _mm256_mul_ps(y, x);
+    y = _mm256_fmadd_ps(e, *(v8sf*)_ps256_cephes_log_q3, y);
 
-    y = _mm256_mul_ps(y, z);
-
-    y = _mm256_fmadd_ps(e, *(v8sf*)_ps256_cephes_log_q1, y);
-    y = _mm256_fnmadd_ps(z, *(v8sf*)_ps256_0p5, y);
-
-    x = _mm256_add_ps(x, y);
-
-    x = _mm256_fmadd_ps(e, *(v8sf*)_ps256_cephes_log_q2, x);
-
-    x = _mm256_or_ps(x, invalid_mask); // negative arg will be NAN
-    return x;
+    y = _mm256_or_ps(y, invalid_mask); // negative arg will be NAN
+    return y;
 }
 
 
 _PS256_CONST(exp_hi,	88.3762626647949f);
 _PS256_CONST(exp_lo,	-88.3762626647949f);
-
+#if 0
 _PS256_CONST(cephes_LOG2EF, 1.44269504088896341);
 _PS256_CONST(cephes_exp_C1, 0.693359375);
 _PS256_CONST(cephes_exp_C2, -2.12194440e-4);
+_PS256_CONST(cephes_exp_C3, 0.6931471805599453);
 
+_PS256_CONST(cephes_exp_p00, 1.0/40320.0);
 _PS256_CONST(cephes_exp_p0, 1.9875691500E-4);
 _PS256_CONST(cephes_exp_p1, 1.3981999507E-3);
 _PS256_CONST(cephes_exp_p2, 8.3334519073E-3);
 _PS256_CONST(cephes_exp_p3, 4.1665795894E-2);
 _PS256_CONST(cephes_exp_p4, 1.6666665459E-1);
 _PS256_CONST(cephes_exp_p5, 5.0000001201E-1);
+#else
+_PS256_CONST(cephes_LOG2EF, 1.4426950408889634);
+_PS256_CONST(cephes_exp_C1, 0.693359375);
+_PS256_CONST(cephes_exp_C2, -2.12194440e-4);
+_PS256_CONST(cephes_exp_C3, 0.6931471805599453);
 
+_PS256_CONST(cephes_exp_p00, 1.0/40320.0);
+_PS256_CONST(cephes_exp_p0, 1.0/5040.0);
+_PS256_CONST(cephes_exp_p1, 1.0/720.0);
+_PS256_CONST(cephes_exp_p2, 1.0/120.0);
+_PS256_CONST(cephes_exp_p3, 1.0/24.0);
+_PS256_CONST(cephes_exp_p4, 1.0/6.0);
+_PS256_CONST(cephes_exp_p5, 0.5);
+#endif
 v8sf exp256_ps(v8sf x) {
   v8sf tmp = _mm256_setzero_ps(), fx;
   v8si imm0;
@@ -341,7 +370,9 @@ v8sf exp256_ps(v8sf x) {
 
   z = _mm256_mul_ps(x,x);
   
-  v8sf y = *(v8sf*)_ps256_cephes_exp_p0;
+  v8sf y = *(v8sf*)_ps256_cephes_exp_p00;
+  y = _mm256_mul_ps(y, x);
+  y = _mm256_add_ps(y, *(v8sf*)_ps256_cephes_exp_p0);
   y = _mm256_mul_ps(y, x);
   y = _mm256_add_ps(y, *(v8sf*)_ps256_cephes_exp_p1);
   y = _mm256_mul_ps(y, x);
@@ -365,7 +396,7 @@ v8sf exp256_ps(v8sf x) {
   y = _mm256_mul_ps(y, pow2n);
   return y;
 }
-
+v8si ione = _mm256_set1_epi32(1);
 v8sf me_exp256_ps(v8sf x) {
     v8sf tmp = _mm256_setzero_ps(), fx;
     v8si imm0;
@@ -374,6 +405,7 @@ v8sf me_exp256_ps(v8sf x) {
     x = _mm256_min_ps(x, *(v8sf*)_ps256_exp_hi);
     x = _mm256_max_ps(x, *(v8sf*)_ps256_exp_lo);
 
+    #if 0
     /* express exp(x) as exp(g + n*log(2)) */
     fx = _mm256_fmadd_ps(x, *(v8sf*)_ps256_cephes_LOG2EF, *(v8sf*)_ps256_0p5);
 
@@ -388,21 +420,24 @@ v8sf me_exp256_ps(v8sf x) {
     v8sf mask = _mm256_cmp_ps(tmp, fx, _CMP_GT_OS);
     mask = _mm256_and_ps(mask, one);
     fx = _mm256_sub_ps(tmp, mask);
+    x = _mm256_fnmadd_ps(fx, *(v8sf*)_ps256_cephes_exp_C3, x);
+//    x = _mm256_fnmadd_ps(fx, *(v8sf*)_ps256_cephes_exp_C2, x);
 
-    x = _mm256_fnmadd_ps(fx, *(v8sf*)_ps256_cephes_exp_C1, x);
-    x = _mm256_fnmadd_ps(fx, *(v8sf*)_ps256_cephes_exp_C2, x);
+    #else
+    fx = _mm256_mul_ps(x, *(v8sf*)_ps256_cephes_LOG2EF);
+    fx = _mm256_floor_ps(fx);
+    x = _mm256_fnmadd_ps(fx, *(v8sf*)_ps256_cephes_exp_C3, x);
+    #endif
 
-    v8sf z = _mm256_mul_ps(x,x);
-
-    v8sf y = *(v8sf*)_ps256_cephes_exp_p0;
+    v8sf y = *(v8sf*)_ps256_cephes_exp_p00;
+    y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p0);
     y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p1);
     y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p2);
     y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p3);
     y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p4);
     y = _mm256_fmadd_ps(y, x, *(v8sf*)_ps256_cephes_exp_p5);
-
-    y = _mm256_fmadd_ps(y, z, x);
-    y = _mm256_add_ps(y, one);
+    y = _mm256_fmadd_ps(y, x, one);
+    y = _mm256_fmadd_ps(y, x, one);
 
     /* build 2^n */
     imm0 = _mm256_cvttps_epi32(fx);
